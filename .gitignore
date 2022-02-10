@@ -1,0 +1,4 @@
+#object, temp and executable files
+*.o
+*~
+proxy
