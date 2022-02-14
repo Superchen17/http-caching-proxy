@@ -2,6 +2,8 @@
 #define __PROXY_H__
 
 #include "clientInfo.h"
+#include "request.h"
+#include "cache.h"
 
 #include <sys/socket.h>
 #include <utility>
@@ -29,6 +31,7 @@ typedef struct sockaddr_storage sockaddr_storage_t;
 class Proxy{
   private:
     int socketFd;
+    Cache cache;
 
   public:
     Proxy(const char* hostname, const char* port):socketFd(-1){
@@ -49,7 +52,10 @@ class Proxy{
     void run();
 
     static void* handle_client(void* _clientInfo);
-    void handle_method_connect();
+
+    static void process_get_request(Request& request, ClientInfo* clientInfo);
+    static void process_post_request(Request& request, ClientInfo* clientInfo);
+    static void process_connect_request(Request& request, ClientInfo* clientInfo);
 };
 
 #endif

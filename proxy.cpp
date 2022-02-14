@@ -121,6 +121,73 @@ int Proxy::create_socket_and_connect(const char* hostname, const char* port){
   return receivingSocketFd;
 }
 
+void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
+  int remoteFd = create_socket_and_connect(
+    request.get_host().c_str(), request.get_port().c_str()
+  );
+  send(remoteFd, request.get_raw_request().c_str(), request.get_raw_request().length(), 0);
+
+  char respChars[65536] = {0};
+  int respCharsLen = recv(remoteFd, respChars, 65536, 0);
+  std::string respStr(respChars, respCharsLen);
+  Response resp(respStr);
+  resp.fetch_rest_body_from_remote(remoteFd, respStr);
+
+  send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
+}
+
+void Proxy::process_post_request(Request& request, ClientInfo* clientInfo){
+  
+}
+
+void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
+  int remoteFd = create_socket_and_connect(
+    request.get_host().c_str(), request.get_port().c_str()
+  );
+  int clientFd = clientInfo->get_clientFd();
+  
+  int maxFd;
+  if(clientFd > remoteFd){
+    maxFd = clientFd + 1;
+  }
+  else{
+    maxFd = remoteFd + 1;
+  }
+  
+  // send 200 OK to client
+  std::string initialResponse = "HTTP/1.1 200 OK\r\n\r\n";
+  send(clientInfo->get_clientFd(), initialResponse.c_str(), initialResponse.length(), 0);
+
+  // IO multiplexing and relay
+  std::vector<int> fds;
+  fds.push_back(clientFd);
+  fds.push_back(remoteFd);
+
+  fd_set fdSet;
+  while(true){
+    FD_ZERO(&fdSet);
+    for(int i = 0; i < fds.size(); i++){
+      FD_SET(fds[i], &fdSet);
+    }
+    select(maxFd, &fdSet, NULL, NULL, NULL); 
+
+    for(int i = 0; i < fds.size(); i++){
+      if(FD_ISSET(fds[i], &fdSet)){
+        char respChars[65536] = {0};
+        int respCharsLen;
+        if((respCharsLen = recv(fds[i], respChars, 65536, 0)) > 0){
+          if((respCharsLen = send(fds[(i + 1) % fds.size()], respChars, respCharsLen, 0)) <= 0){
+            return;
+          }
+        }
+        else{
+          return;
+        }
+      }
+    }  
+  }
+}
+
 void* Proxy::handle_client(void* _clientInfo){
   std::cout << "starting handling request... " << std::endl;
   ClientInfo* clientInfo = (ClientInfo*) _clientInfo;
@@ -135,25 +202,13 @@ void* Proxy::handle_client(void* _clientInfo){
     Request request(requestStr);
 
     if(request.get_method() == "GET"){
-
-      int remoteFd = create_socket_and_connect(
-        request.get_host().c_str(), request.get_port().c_str()
-      );
-      send(remoteFd, requestChars, requestCharsLen, 0);
-
-      char respChars[65536] = {0};
-      int respCharsLen = recv(remoteFd, respChars, 65536, 0);
-      std::string respStr(respChars, respCharsLen);
-      Response resp(respStr);
-      resp.fetch_rest_body_from_remote(remoteFd, respStr);
-
-      send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
+      Proxy::process_get_request(request, clientInfo);
     }
     else if(request.get_method() == "POST"){
 
     }
     else if(request.get_method() == "CONNECT"){
-
+      Proxy::process_connect_request(request, clientInfo);
     }
     else{
 
@@ -171,10 +226,6 @@ void* Proxy::handle_client(void* _clientInfo){
   std::cout << "finished handling request" << std::endl;
   delete clientInfo;
   return NULL;
-}
-
-void Proxy::handle_method_connect(){
-
 }
 
 void Proxy::run(){
