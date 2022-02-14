@@ -7,8 +7,6 @@ Request::Request(std::string requestStr){
   this->find_method();
   this->find_host_and_port();
   this->find_acceptedEncoding();
-
-  this->print_request_fields();
 }
 
 Request::~Request(){
@@ -29,6 +27,10 @@ std::string Request::get_host() const{
 
 std::string Request::get_port() const{
   return this->port;
+}
+
+std::vector<std::string> Request::get_acceptedEncoding() const{
+  return this->acceptedEncoding;
 }
 
 bool Request::operator==(const Request& rhs) const{
@@ -145,8 +147,8 @@ void Request::find_acceptedEncoding(){
 }
 
 
-void Request::print_whole_request(){
-  std::vector<std::string>::iterator linesIt = this->lines.begin();
+void Request::print_whole_request() const{
+  std::vector<std::string>::const_iterator linesIt = this->lines.begin();
 
   while(linesIt != this->lines.end()){
     std::cout << " - " << *linesIt << std::endl;
@@ -154,7 +156,7 @@ void Request::print_whole_request(){
   }
 }
 
-void Request::print_request_fields(){
+void Request::print_request_fields() const{
   std::cout << "method: " << this->method << std::endl;
   std::cout << "host: " << this->host << std::endl;
   std::cout << "port: " << this->port << std::endl;

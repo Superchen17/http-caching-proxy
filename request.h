@@ -33,8 +33,8 @@ class Request{
     void find_host_and_port();
     void find_acceptedEncoding();
 
-    void print_whole_request();
-    void print_request_fields();
+    void print_whole_request() const;
+    void print_request_fields() const;
 };
 
 #endif

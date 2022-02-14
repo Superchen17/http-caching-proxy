@@ -19,6 +19,8 @@
 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
+Cache cache;
+
 typedef struct addrinfo addrinfo_t;
 typedef struct sockaddr sockaddr_t;
 typedef struct sockaddr_in sockaddr_in_t;
@@ -31,7 +33,6 @@ typedef struct sockaddr_storage sockaddr_storage_t;
 class Proxy{
   private:
     int socketFd;
-    Cache cache;
 
   public:
     Proxy(const char* hostname, const char* port):socketFd(-1){
@@ -52,6 +53,8 @@ class Proxy{
     void run();
 
     static void* handle_client(void* _clientInfo);
+
+    static Response get_response_from_remote(Request& request, int remoteFd);
 
     static void process_get_request(Request& request, ClientInfo* clientInfo);
     static void process_post_request(Request& request, ClientInfo* clientInfo);

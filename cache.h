@@ -22,6 +22,10 @@ class Cache{
     Cache(){}
     ~Cache(){}
 
+    void add_entry_to_store(const Request& request, const Response& response);
+    bool exist_in_store(const Request& request) const;
+    Response get_cached_response(const Request& request) const;
+    void print_store() const;
 };
 
 #endif

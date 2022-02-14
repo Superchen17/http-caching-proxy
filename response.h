@@ -14,6 +14,7 @@ class Response{
     void compute_contentLength();
 
   public:
+    Response(): contentLength(0){}
     Response(std::string firstBatch);
     ~Response();
 

@@ -121,10 +121,7 @@ int Proxy::create_socket_and_connect(const char* hostname, const char* port){
   return receivingSocketFd;
 }
 
-void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
-  int remoteFd = create_socket_and_connect(
-    request.get_host().c_str(), request.get_port().c_str()
-  );
+Response Proxy::get_response_from_remote(Request& request, int remoteFd){
   send(remoteFd, request.get_raw_request().c_str(), request.get_raw_request().length(), 0);
 
   char respChars[65536] = {0};
@@ -133,6 +130,23 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   Response resp(respStr);
   resp.fetch_rest_body_from_remote(remoteFd, respStr);
 
+  return resp;
+}
+
+void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
+  int remoteFd = create_socket_and_connect(
+    request.get_host().c_str(), request.get_port().c_str()
+  );
+  
+  Response resp;
+  if(cache.exist_in_store(request)){
+    resp = cache.get_cached_response(request);
+  }
+  else{
+    resp = Proxy::get_response_from_remote(request, remoteFd);
+    cache.add_entry_to_store(request, resp);
+  }
+  
   send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
 }
 
@@ -189,7 +203,7 @@ void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
 }
 
 void* Proxy::handle_client(void* _clientInfo){
-  std::cout << "starting handling request... " << std::endl;
+  // std::cout << "starting handling request... " << std::endl;
   ClientInfo* clientInfo = (ClientInfo*) _clientInfo;
 
   int clientFd = clientInfo->get_clientFd();
@@ -223,7 +237,7 @@ void* Proxy::handle_client(void* _clientInfo){
     std::cerr << "error: unexpected" << std::endl;
   }
 
-  std::cout << "finished handling request" << std::endl;
+  // std::cout << "finished handling request" << std::endl;
   delete clientInfo;
   return NULL;
 }
