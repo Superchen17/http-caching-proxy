@@ -139,13 +139,18 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   );
   
   Response resp;
-  if(cache.exist_in_store(request)){
+  if(cache.exist_in_store(request)){ // if in cache
+    // determine if need to revalidate
     resp = cache.get_cached_response(request);
+    bool needReval = resp.need_revalidation();
+    std::cout << needReval << std::endl;
   }
-  else{
+  else{ // if not in cache
+    std::cout << "not in cache " << std::endl;
     resp = Proxy::get_response_from_remote(request, remoteFd);
     cache.add_entry_to_store(request, resp);
   }
+  // Response resp = Proxy::get_response_from_remote(request, remoteFd);
   
   send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
 }

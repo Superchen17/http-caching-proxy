@@ -1,5 +1,6 @@
 #include "response.h"
 #include "exception.h"
+#include "customTime.h"
 #include <sys/socket.h>
 
 void Response::parse_rawHeader(std::string firstBatch){
@@ -12,11 +13,23 @@ void Response::parse_rawHeader(std::string firstBatch){
 
 Response::Response(std::string firstBatch){
   this->parse_rawHeader(firstBatch);
+  this->from_str_to_vec(this->rawHeader);
   this->compute_contentLength();
+  this->parse_date();
+  this->parse_cacheControl();
+  this->parse_lastModified();
+  this->parse_eTag();
+  this->parse_expires();
 }
 
 Response::~Response(){
 
+}
+
+std::string Response::parse_string_field(std::string lineHead, std::string lineEnd){
+  std::string line = this->get_line_with_header(lineHead);
+  std::string field = this->remove_line_header_and_end(line, lineHead, lineEnd);
+  return field;
 }
 
 std::string Response::get_rawHeader(){
@@ -53,6 +66,90 @@ void Response::compute_contentLength(){
   }
 }
 
+void Response::parse_date(){
+  try{
+    this->date = this->parse_string_field("Date: ", "\r\n");
+  }
+  catch(CustomException& e){
+    this->date = "";
+  }
+}
+
+void Response::parse_cacheControl(){
+  try{
+    this->cacheControl = this->parse_string_field("Cache-Control: ", "\r\n");
+  }
+  catch(CustomException& e){
+    this->cacheControl = "";
+  }
+}
+
+void Response::parse_lastModified(){
+  try{
+    this->lastModified = this->parse_string_field("Last-Modified: ", "\r\n");
+  }
+  catch(CustomException& e){
+    this->lastModified = "";
+  }
+}
+
+void Response::parse_eTag(){
+  try{
+    this->eTag = this->parse_string_field("ETag: ", "\r\n");
+  }
+  catch(CustomException& e){
+    this->eTag = "";
+  }
+}
+
+void Response::parse_expires(){
+  try{
+    this->expires = this->parse_string_field("Expires: ", "\r\n");
+  }
+  catch(CustomException& e){
+    this->expires = "";
+  }
+}
+
+std::string Response::remove_line_header_and_end(std::string line, std::string lineHead, std::string lineEnd){
+  
+  // prune line header
+  line = line.substr(lineHead.length());
+  
+  // prune line end
+  size_t posLineEnd = line.find_first_of(lineEnd);
+  line = line.substr(0, posLineEnd);
+
+  return line;  
+}
+
+void Response::from_str_to_vec(std::string responseHeader){
+  std::string delimiter = "\r\n";
+  size_t pos = 0;
+  std::string line;
+  std::vector<std::string> lines;
+
+  while((pos = responseHeader.find(delimiter)) != std::string::npos){
+    line = responseHeader.substr(0, pos);
+    if(!line.empty()){
+      this->lines.push_back(line);
+    }
+    responseHeader = responseHeader.substr(pos + delimiter.length());
+  }
+}
+
+std::string Response::get_line_with_header(std::string header){
+  std::vector<std::string>::iterator linesIt = this->lines.begin();
+  while(linesIt != this->lines.end()){
+    size_t pos = 0;
+    if((pos = (*linesIt).find(header)) != std::string::npos){
+      return *linesIt;
+    }
+    ++linesIt;
+  }
+  throw CustomException("error: no information found in header");
+}
+
 void Response::fetch_rest_body_from_remote(int remoteFd, std::string firstBatch){
   
   int remainLen = this->contentLength;
@@ -82,7 +179,73 @@ bool Response::is_chunked(){
   return false;
 }
 
+bool Response::need_revalidation(){
+  // if no cache-control header, no need
+  if(this->cacheControl == ""){
+    std::cout << "never need revalidate" << std::endl;
+    return false;
+  }
+
+  std::string maxAgeWord = "max-age=";
+  std::string mustRevalWord = "must-revalidate";
+  size_t posMaxAge, posMustRevalWord;
+
+  // check if cache-control has must-revalidate
+  if((posMustRevalWord=this->cacheControl.find(mustRevalWord)) != std::string::npos){
+    std::cout << "must-revalidate" << std::endl;
+    return true;
+  }
+
+  // check if expire header exist
+  if(this->expires != ""){
+    std::tm* tmExpireTime = CustomTime::convert_string_time_to_tm(this->expires);
+    std::time_t timeNow = std::time(0);
+    std::time_t timeExpire = mktime(tmExpireTime);
+
+    if(timeNow > timeExpire){ // need revalidate if now > expire time
+      std::cout << "expires" << std::endl;
+      delete tmExpireTime;
+      return true;
+    }
+    else{
+      std::cout << "not expired" << std::endl;
+      delete tmExpireTime;
+      return false;
+    }
+  }
+  // check if cache-control has max-age
+  else if((posMaxAge=this->cacheControl.find(maxAgeWord)) != std::string::npos){
+    std::string maxAgeStr = this->cacheControl.substr(posMaxAge + maxAgeWord.length());
+
+    std::tm* tmDate = CustomTime::convert_string_time_to_tm(this->date);
+    std::time_t timeNow = std::time(0);
+    std::time_t timeCached = mktime(tmDate);
+
+    // need revalidate if now > (cached time + max age)
+    if(timeNow > timeCached + std::stoi(maxAgeStr)){
+      std::cout << "max age expires" << std::endl;
+      delete tmDate;
+      return true;
+    }
+    else{
+      std::cout << "max age not expired" << std::endl;
+      delete tmDate;
+      return false;
+    }
+  }
+  std::cout << "other" << std::endl;
+  return true;
+}
+
 std::string Response::get_response(){
   return this->rawHeader + this->body;
 }
 
+void Response::print_response_headers(){
+  std::cout << "date: " << this->date <<  std::endl;
+  std::cout << "cache-control: " << this->cacheControl <<  std::endl;
+  std::cout << "last-modified: " << this->lastModified <<  std::endl;
+  std::cout << "etag: " << this->eTag <<  std::endl;
+  std::cout << "expires: " << this->expires <<  std::endl;
+  std::cout << "content-length: " << this->contentLength <<  std::endl;
+}
