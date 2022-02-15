@@ -54,6 +54,7 @@ class Proxy{
 
     static void* handle_client(void* _clientInfo);
 
+    static Response get_revalidation_result_from_remote(Request& request, Response& cachedResp, int remoteFd);
     static Response get_response_from_remote(Request& request, int remoteFd);
 
     static void process_get_request(Request& request, ClientInfo* clientInfo);

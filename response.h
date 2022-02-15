@@ -30,14 +30,17 @@ class Response{
     std::string remove_line_header_and_end(std::string line, std::string lineHead, std::string lineEnd);
 
   public:
-    Response(): contentLength(0){}
+    Response(): contentLength(-1){}
     Response(std::string firstBatch);
     ~Response();
 
     std::string get_rawHeader();
     size_t get_headerLen();
+    int get_contentLength();
     std::string get_body();
     std::string get_response();
+    std::string get_lastModified();
+    std::string get_eTag();
 
     void fetch_rest_body_from_remote(int remoteFd, std::string firstBatch);
 

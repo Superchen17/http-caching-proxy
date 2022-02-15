@@ -121,6 +121,27 @@ int Proxy::create_socket_and_connect(const char* hostname, const char* port){
   return receivingSocketFd;
 }
 
+Response Proxy::get_revalidation_result_from_remote(Request& request, Response& cachedResp, int remoteFd){
+  std::string newRequestStr = request.get_raw_request();
+  std::string lineEnd = "\r\n";
+
+  newRequestStr = newRequestStr.substr(0, newRequestStr.find("\r\n\r\n"));
+  newRequestStr += lineEnd;
+
+  if(cachedResp.get_eTag() != ""){
+    newRequestStr += ("If-None-Match: " + cachedResp.get_eTag() + lineEnd);
+  }
+  if(cachedResp.get_lastModified() != ""){
+    newRequestStr += ("If-Modified-Since: " + cachedResp.get_lastModified() + lineEnd);
+  }
+  newRequestStr += lineEnd;
+
+  Request newRequest(newRequestStr);
+  Response newResp = Proxy::get_response_from_remote(newRequest, remoteFd);
+  
+  return newResp;
+}
+
 Response Proxy::get_response_from_remote(Request& request, int remoteFd){
   send(remoteFd, request.get_raw_request().c_str(), request.get_raw_request().length(), 0);
 
@@ -128,8 +149,9 @@ Response Proxy::get_response_from_remote(Request& request, int remoteFd){
   int respCharsLen = recv(remoteFd, respChars, 65536, 0);
   std::string respStr(respChars, respCharsLen);
   Response resp(respStr);
-  resp.fetch_rest_body_from_remote(remoteFd, respStr);
-
+  if(resp.get_contentLength() != -1){
+    resp.fetch_rest_body_from_remote(remoteFd, respStr);
+  }
   return resp;
 }
 
@@ -140,17 +162,28 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   
   Response resp;
   if(cache.exist_in_store(request)){ // if in cache
-    // determine if need to revalidate
     resp = cache.get_cached_response(request);
-    bool needReval = resp.need_revalidation();
-    std::cout << needReval << std::endl;
+    bool needRevalidate = resp.need_revalidation();
+    if(needRevalidate){ // check if need to revalidate
+      Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd);
+      std::string notModified = "HTTP/1.1 304 Not Modified";
+      if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
+        std::cout << "modified" << std::endl;
+        resp = validateResp;
+      }
+      else{
+        std::cout << "not modified" << std::endl;
+      }
+    }
+    else{
+      std::cout << "not expired" << std::endl;
+    }
   }
   else{ // if not in cache
     std::cout << "not in cache " << std::endl;
     resp = Proxy::get_response_from_remote(request, remoteFd);
     cache.add_entry_to_store(request, resp);
   }
-  // Response resp = Proxy::get_response_from_remote(request, remoteFd);
   
   send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
 }
@@ -236,7 +269,7 @@ void* Proxy::handle_client(void* _clientInfo){
     
   }
   catch(CustomException& e){
-    std::cerr << e.what() << std::endl;
+    std::cerr << e.what() << "(when handling client)" << std::endl;
   }
   catch(std::exception& e){
     std::cerr << "error: unexpected" << std::endl;

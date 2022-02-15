@@ -40,8 +40,20 @@ size_t Response::get_headerLen(){
   return this->rawHeader.length();
 }
 
+int Response::get_contentLength(){
+  return this->contentLength;
+}
+
 std::string Response::get_body(){
   return this->body;
+}
+
+std::string Response::get_lastModified(){
+  return this->lastModified;
+}
+
+std::string Response::get_eTag(){
+  return this->eTag;
 }
 
 void Response::compute_contentLength(){
@@ -180,10 +192,9 @@ bool Response::is_chunked(){
 }
 
 bool Response::need_revalidation(){
-  // if no cache-control header, no need
+  // if no cache-control header, must revalidate
   if(this->cacheControl == ""){
-    std::cout << "never need revalidate" << std::endl;
-    return false;
+    return true;
   }
 
   std::string maxAgeWord = "max-age=";
@@ -192,7 +203,6 @@ bool Response::need_revalidation(){
 
   // check if cache-control has must-revalidate
   if((posMustRevalWord=this->cacheControl.find(mustRevalWord)) != std::string::npos){
-    std::cout << "must-revalidate" << std::endl;
     return true;
   }
 
@@ -203,12 +213,10 @@ bool Response::need_revalidation(){
     std::time_t timeExpire = mktime(tmExpireTime);
 
     if(timeNow > timeExpire){ // need revalidate if now > expire time
-      std::cout << "expires" << std::endl;
       delete tmExpireTime;
       return true;
     }
     else{
-      std::cout << "not expired" << std::endl;
       delete tmExpireTime;
       return false;
     }
@@ -223,17 +231,14 @@ bool Response::need_revalidation(){
 
     // need revalidate if now > (cached time + max age)
     if(timeNow > timeCached + std::stoi(maxAgeStr)){
-      std::cout << "max age expires" << std::endl;
       delete tmDate;
       return true;
     }
     else{
-      std::cout << "max age not expired" << std::endl;
       delete tmDate;
       return false;
     }
   }
-  std::cout << "other" << std::endl;
   return true;
 }
 
