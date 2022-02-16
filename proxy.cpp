@@ -155,6 +155,17 @@ Response Proxy::get_response_from_remote(Request& request, int remoteFd){
   return resp;
 }
 
+void Proxy::relay_chunks_remote_to_client(int remoteFd, int clientFd){
+  while(true){
+    char respChars[65536] = {0};
+    int size = recv(remoteFd, respChars, 65536, 0);
+    if(size <= 0){
+      break;
+    }
+    send(clientFd, respChars, size, 0);
+  }
+}
+
 void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   int remoteFd = create_socket_and_connect(
     request.get_host().c_str(), request.get_port().c_str()
@@ -182,16 +193,32 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
     }
   }
   else{ // if not in cache
-    std::cout << "not in cache " << std::endl;
     resp = Proxy::get_response_from_remote(request, remoteFd);
-    cache.add_entry_to_store(request, resp);
+    if(resp.is_chunked() == true){ // if chunked, stream back to client, 
+                                   // do not wait for entire response, do not cache
+      std::cout << "chuncked" << std::endl;
+      Proxy::relay_chunks_remote_to_client(remoteFd, clientInfo->get_clientFd());
+      return;
+    }
+    else if(resp.is_cacheable()){ // if cacheable, add to cache
+      std::cout << "not in cache " << std::endl;
+      cache.add_entry_to_store(request, resp);
+    }
+    else{ // if not cacheable, do not add to cache
+      std::cout << "not cacheable" << std::endl;
+    }
   }
   
   send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
 }
 
 void Proxy::process_post_request(Request& request, ClientInfo* clientInfo){
-  
+  int remoteFd = create_socket_and_connect(
+    request.get_host().c_str(), request.get_port().c_str()
+  );
+  Response resp = Proxy::get_response_from_remote(request, remoteFd);
+  send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
+  std::cout << "post" << std::endl;
 }
 
 void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
@@ -242,6 +269,17 @@ void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
   }
 }
 
+void Proxy::handle_exception(int clientFd, std::string errorCode){
+  std::unordered_map<std::string, std::string> errorMap = {
+    {"400", "HTTP/1.1 400 Bad Request\r\n\r\n"},
+    {"404", "HTTP/1.1 404 Not Found\r\n\r\n"},
+    {"405", "HTTP/1.1 405 Method Not Allowed\r\n\r\n"}
+  };
+
+  std::string errorMessage = errorMap[errorCode];
+  send(clientFd, errorMessage.c_str(), errorMessage.length(), 0);
+}
+
 void* Proxy::handle_client(void* _clientInfo){
   ClientInfo* clientInfo = (ClientInfo*) _clientInfo;
 
@@ -257,7 +295,7 @@ void* Proxy::handle_client(void* _clientInfo){
   }
   catch(CustomException& e){ 
     std::string badRequestResponse = "HTTP/1.1 400 Bad Request\r\n\r\n";
-    send(clientInfo->get_clientFd(), badRequestResponse.c_str(), badRequestResponse.length(), 0);
+    Proxy::handle_exception(clientFd, "400");
 
     close(clientFd);
     delete clientInfo;
@@ -270,20 +308,32 @@ void* Proxy::handle_client(void* _clientInfo){
     }
     catch(CustomException& e){ // if error, return 404
       std::cout << "not found" << std::endl;
-      std::string errorResponse = "HTTP/1.1 404 Not Found\r\n\r\n";
-      send(clientInfo->get_clientFd(), errorResponse.c_str(), errorResponse.length(), 0);
+      Proxy::handle_exception(clientFd, "404");
     }
   }
   else if(request.get_method() == "POST"){
-
+    try{
+      Proxy::process_post_request(request, clientInfo);
+    }
+    catch(CustomException& e){
+      Proxy::handle_exception(clientFd, "400");
+    }
+    catch(...){ // handle a rare error: basic_string::_M_create, to be investigated
+      Proxy::handle_exception(clientFd, "404");
+    }
   }
   else if(request.get_method() == "CONNECT"){
-    Proxy::process_connect_request(request, clientInfo);
+    try{
+      Proxy::process_connect_request(request, clientInfo);
+    }
+    catch(CustomException& e){ // if error, return 404
+      std::cout << "not found" << std::endl;
+      Proxy::handle_exception(clientFd, "404");
+    }
   }
   else{ // if method not in [GET, POST, CONNECT], return 405
     std::cout << "method not allowed" << std::endl;
-    std::string errorResponse = "HTTP/1.1 405 Method Not Allowed\r\n\r\n";
-    send(clientInfo->get_clientFd(), errorResponse.c_str(), errorResponse.length(), 0);
+    Proxy::handle_exception(clientFd, "405");
   }
 
   close(clientFd);

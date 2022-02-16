@@ -53,10 +53,12 @@ class Proxy{
     void run();
 
     static void* handle_client(void* _clientInfo);
+    static void handle_exception(int clientFd, std::string errorCode);
 
     static Response get_revalidation_result_from_remote(Request& request, Response& cachedResp, int remoteFd);
     static Response get_response_from_remote(Request& request, int remoteFd);
 
+    static void relay_chunks_remote_to_client(int remoteFd, int clientFd);
     static void process_get_request(Request& request, ClientInfo* clientInfo);
     static void process_post_request(Request& request, ClientInfo* clientInfo);
     static void process_connect_request(Request& request, ClientInfo* clientInfo);

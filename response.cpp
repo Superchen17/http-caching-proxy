@@ -191,6 +191,15 @@ bool Response::is_chunked(){
   return false;
 }
 
+bool Response::is_cacheable(){
+  std::string noCacheWord = "no-cache";
+  size_t posNoCacheWord = this->cacheControl.find(noCacheWord);
+  if(posNoCacheWord == std::string::npos){
+    return true;
+  }
+  return false;
+}
+
 bool Response::need_revalidation(){
   // if no cache-control header, must revalidate
   if(this->cacheControl == ""){

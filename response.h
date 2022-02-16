@@ -53,6 +53,7 @@ class Response{
      * @return false 
      */
     bool is_chunked();
+    bool is_cacheable();
     bool need_revalidation();
 
     void print_response_headers();

@@ -11,6 +11,9 @@ size_t Cache::RequestKeyHash::operator()(const Request& r) const{
 
 void Cache::add_entry_to_store(const Request& request, const Response& response){
   if(this->store.find(request) == this->store.end()){
+    if(this->store.size() == this->maxCacheSize){ // remove first entry if cache full
+      this->evict_from_store(this->store.begin()->first);
+    }
     this->store.insert({request, response});
   }
 }

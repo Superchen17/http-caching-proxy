@@ -9,6 +9,8 @@
 #include <vector>
 #include <bits/stdc++.h>
 
+#define MAX_CACHE_SIZE 10
+
 class Cache{
   class RequestKeyHash{
     public:
@@ -16,10 +18,11 @@ class Cache{
   };
 
   private:
+    int maxCacheSize;
     std::unordered_map<Request, Response, RequestKeyHash> store;
 
   public:
-    Cache(){}
+    Cache(): maxCacheSize(MAX_CACHE_SIZE){}
     ~Cache(){}
 
     void add_entry_to_store(const Request& request, const Response& response);
