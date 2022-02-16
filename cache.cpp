@@ -12,9 +12,11 @@ size_t Cache::RequestKeyHash::operator()(const Request& r) const{
 void Cache::add_entry_to_store(const Request& request, const Response& response){
   if(this->store.find(request) == this->store.end()){
     this->store.insert({request, response});
-    // std::cout << "added to cache" << std::endl;
   }
-  // std::cout << this->store.size() << std::endl;
+}
+
+void Cache::evict_from_store(const Request& request){
+  this->store.erase(request);
 }
 
 bool Cache::exist_in_store(const Request& request) const{

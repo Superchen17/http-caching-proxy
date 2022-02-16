@@ -17,6 +17,7 @@ class Request{
     std::string remove_line_header_and_end(std::string line, std::string lineHead, std::string lineEnd);
 
   public:
+    Request(){}
     Request(std::string requestStr);
     ~Request();
 

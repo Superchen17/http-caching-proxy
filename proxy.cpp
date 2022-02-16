@@ -169,7 +169,9 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
       std::string notModified = "HTTP/1.1 304 Not Modified";
       if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
         std::cout << "modified" << std::endl;
-        resp = validateResp;
+        resp = validateResp; // send fresh response to client
+        cache.evict_from_store(request); // evict stale cache
+        cache.add_entry_to_store(request, resp);// add fresh response to cache
       }
       else{
         std::cout << "not modified" << std::endl;
@@ -241,41 +243,50 @@ void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
 }
 
 void* Proxy::handle_client(void* _clientInfo){
-  // std::cout << "starting handling request... " << std::endl;
   ClientInfo* clientInfo = (ClientInfo*) _clientInfo;
 
   int clientFd = clientInfo->get_clientFd();
 
   char requestChars[65536] = {0};
   int requestCharsLen = recv(clientInfo->get_clientFd(), requestChars, 65536, 0);
+  Request request;
 
-  try{
+  try{ // if request is malformed, return 400
     std::string requestStr(requestChars);
-    Request request(requestStr);
+    request = Request(requestStr);
+  }
+  catch(CustomException& e){ 
+    std::string badRequestResponse = "HTTP/1.1 400 Bad Request\r\n\r\n";
+    send(clientInfo->get_clientFd(), badRequestResponse.c_str(), badRequestResponse.length(), 0);
 
-    if(request.get_method() == "GET"){
+    close(clientFd);
+    delete clientInfo;
+    return NULL;
+  }
+
+  if(request.get_method() == "GET"){
+    try{ // process request and return response
       Proxy::process_get_request(request, clientInfo);
     }
-    else if(request.get_method() == "POST"){
-
+    catch(CustomException& e){ // if error, return 404
+      std::cout << "not found" << std::endl;
+      std::string errorResponse = "HTTP/1.1 404 Not Found\r\n\r\n";
+      send(clientInfo->get_clientFd(), errorResponse.c_str(), errorResponse.length(), 0);
     }
-    else if(request.get_method() == "CONNECT"){
-      Proxy::process_connect_request(request, clientInfo);
-    }
-    else{
+  }
+  else if(request.get_method() == "POST"){
 
-    }
-    close(clientFd);
-    
   }
-  catch(CustomException& e){
-    std::cerr << e.what() << "(when handling client)" << std::endl;
+  else if(request.get_method() == "CONNECT"){
+    Proxy::process_connect_request(request, clientInfo);
   }
-  catch(std::exception& e){
-    std::cerr << "error: unexpected" << std::endl;
+  else{ // if method not in [GET, POST, CONNECT], return 405
+    std::cout << "method not allowed" << std::endl;
+    std::string errorResponse = "HTTP/1.1 405 Method Not Allowed\r\n\r\n";
+    send(clientInfo->get_clientFd(), errorResponse.c_str(), errorResponse.length(), 0);
   }
 
-  // std::cout << "finished handling request" << std::endl;
+  close(clientFd);
   delete clientInfo;
   return NULL;
 }

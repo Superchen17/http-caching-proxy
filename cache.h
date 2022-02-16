@@ -23,6 +23,7 @@ class Cache{
     ~Cache(){}
 
     void add_entry_to_store(const Request& request, const Response& response);
+    void evict_from_store(const Request& request);
     bool exist_in_store(const Request& request) const;
     Response get_cached_response(const Request& request) const;
     void print_store() const;
