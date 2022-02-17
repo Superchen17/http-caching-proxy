@@ -17,6 +17,13 @@ std::string Request::get_raw_request() const{
   return this->rawRequest;
 }
 
+std::string Request::get_header_first_line() const{
+  if(!lines.empty()){
+    return this->lines[0];
+  }
+  throw CustomException("ERROR: empty request header");
+}
+
 std::string Request::get_method() const{
   return this->method;
 }

@@ -22,6 +22,7 @@ class Request{
     ~Request();
 
     std::string get_raw_request() const;
+    std::string get_header_first_line() const;
     std::string get_method() const;
     std::string get_host() const;
     std::string get_port() const;

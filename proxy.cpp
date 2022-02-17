@@ -2,9 +2,22 @@
 #include "request.h"
 #include "response.h"
 #include "exception.h"
+#include "customTime.h"
+
+#include <sstream>
 
 Proxy::~Proxy(){
 
+}
+
+int Proxy::get_new_sessionId(){
+  int oldId = this->sessionId;
+
+  pthread_mutex_lock(&lock);
+  this->sessionId++;
+  pthread_mutex_unlock(&lock);
+
+  return oldId;
 }
 
 void Proxy::create_addrInfo(const char* _hostname, const char* _port, addrinfo_t** hostInfoList){
@@ -88,7 +101,7 @@ ClientInfo* Proxy::accept_connection(){
   std::string clientIp = inet_ntoa(s->sin_addr);
   int clientPort = ntohs(s->sin_port);
 
-  ClientInfo* clientInfo = new ClientInfo(clientConnFd, clientIp, clientPort);
+  ClientInfo* clientInfo = new ClientInfo(clientConnFd, clientIp, clientPort, this->get_new_sessionId());
   return clientInfo;
 }
 
@@ -121,7 +134,7 @@ int Proxy::create_socket_and_connect(const char* hostname, const char* port){
   return receivingSocketFd;
 }
 
-Response Proxy::get_revalidation_result_from_remote(Request& request, Response& cachedResp, int remoteFd){
+Response Proxy::get_revalidation_result_from_remote(Request& request, Response& cachedResp, int remoteFd, ClientInfo* clientInfo){
   std::string newRequestStr = request.get_raw_request();
   std::string lineEnd = "\r\n";
 
@@ -137,12 +150,19 @@ Response Proxy::get_revalidation_result_from_remote(Request& request, Response& 
   newRequestStr += lineEnd;
 
   Request newRequest(newRequestStr);
-  Response newResp = Proxy::get_response_from_remote(newRequest, remoteFd);
+  Response newResp = Proxy::get_response_from_remote(newRequest, remoteFd, clientInfo);
   
   return newResp;
 }
 
-Response Proxy::get_response_from_remote(Request& request, int remoteFd){
+Response Proxy::get_response_from_remote(Request& request, int remoteFd, ClientInfo* clientInfo){
+  int sessionId = clientInfo->get_sessionId();
+
+  std::stringstream ss;
+  ss << "Requesting " << request.get_header_first_line() 
+    << " from " << request.get_host();
+  Proxy::print_to_log(sessionId, ss.str(), DEBUG);
+
   send(remoteFd, request.get_raw_request().c_str(), request.get_raw_request().length(), 0);
 
   char respChars[65536] = {0};
@@ -152,6 +172,11 @@ Response Proxy::get_response_from_remote(Request& request, int remoteFd){
   if(resp.get_contentLength() != -1){
     resp.fetch_rest_body_from_remote(remoteFd, respStr);
   }
+
+  ss.str(std::string());
+  ss << "Received " << resp.get_header_first_line()
+    << " from " << request.get_host();
+  Proxy::print_to_log(sessionId, ss.str(), DEBUG);
   return resp;
 }
 
@@ -170,13 +195,20 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   int remoteFd = create_socket_and_connect(
     request.get_host().c_str(), request.get_port().c_str()
   );
+  int sessionId = clientInfo->get_sessionId();
   
   Response resp;
   if(cache.exist_in_store(request)){ // if in cache
     resp = cache.get_cached_response(request);
-    bool needRevalidate = resp.need_revalidation();
-    if(needRevalidate){ // check if need to revalidate
-      Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd);
+    int needRevalidate = resp.need_revalidation();
+    if(needRevalidate > 0){ // check if need to revalidate
+      if(needRevalidate == 1){
+        Proxy::print_to_log(sessionId, "in cache, requires validation", DEBUG);
+      }
+      else if(needRevalidate == 2){
+        Proxy::print_to_log(sessionId, "in cache, but expired at" + resp.get_expiration_time(), DEBUG);
+      }
+      Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd, clientInfo);
       std::string notModified = "HTTP/1.1 304 Not Modified";
       if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
         std::cout << "modified" << std::endl;
@@ -185,30 +217,38 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
         cache.add_entry_to_store(request, resp);// add fresh response to cache
       }
       else{
-        std::cout << "not modified" << std::endl;
+        Proxy::print_to_log(sessionId, "in cache, valid", DEBUG);
       }
     }
     else{
-      std::cout << "not expired" << std::endl;
+      Proxy::print_to_log(sessionId, "in cache, valid", DEBUG);
     }
   }
   else{ // if not in cache
-    resp = Proxy::get_response_from_remote(request, remoteFd);
+    Proxy::print_to_log(sessionId, "not in cache", DEBUG);
+    resp = Proxy::get_response_from_remote(request, remoteFd, clientInfo);
     if(resp.is_chunked() == true){ // if chunked, stream back to client, 
                                    // do not wait for entire response, do not cache
-      std::cout << "chuncked" << std::endl;
+      Proxy::print_to_log(sessionId, "not cacheable because chunked", DEBUG);
       Proxy::relay_chunks_remote_to_client(remoteFd, clientInfo->get_clientFd());
+      Proxy::print_to_log(sessionId, "Tunnel closed", DEBUG);
       return;
     }
-    else if(resp.is_cacheable()){ // if cacheable, add to cache
-      std::cout << "not in cache " << std::endl;
+    int isCacheable = resp.is_cacheable();
+    if( isCacheable == 0){
+      Proxy::print_to_log(sessionId, "not cacheable because cache-control=no-cache", DEBUG);
+    }
+    else if(isCacheable == 1){
+      Proxy::print_to_log(sessionId, "cached, expires at " + resp.get_expiration_time(), DEBUG);
       cache.add_entry_to_store(request, resp);
     }
-    else{ // if not cacheable, do not add to cache
-      std::cout << "not cacheable" << std::endl;
+    else{
+      Proxy::print_to_log(sessionId, "cached, but requires re-validation", DEBUG);
+      cache.add_entry_to_store(request, resp);
     }
   }
   
+  Proxy::print_to_log(sessionId, "Responding " + resp.get_header_first_line(), DEBUG);
   send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
 }
 
@@ -216,9 +256,12 @@ void Proxy::process_post_request(Request& request, ClientInfo* clientInfo){
   int remoteFd = create_socket_and_connect(
     request.get_host().c_str(), request.get_port().c_str()
   );
-  Response resp = Proxy::get_response_from_remote(request, remoteFd);
+  int sessionId = clientInfo->get_sessionId();
+
+  Response resp = Proxy::get_response_from_remote(request, remoteFd, clientInfo);
+
+  Proxy::print_to_log(sessionId, "Responding " + resp.get_header_first_line(), DEBUG);
   send(clientInfo->get_clientFd(), resp.get_response().c_str(), resp.get_response().length(), 0);
-  std::cout << "post" << std::endl;
 }
 
 void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
@@ -258,10 +301,12 @@ void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
         int respCharsLen;
         if((respCharsLen = recv(fds[i], respChars, 65536, 0)) > 0){
           if((respCharsLen = send(fds[(i + 1) % fds.size()], respChars, respCharsLen, 0)) <= 0){
+            Proxy::print_to_log(clientInfo->get_sessionId(), "Tunnel closed", DEBUG);
             return;
           }
         }
         else{
+          Proxy::print_to_log(clientInfo->get_sessionId(), "Tunnel closed", DEBUG);
           return;
         }
       }
@@ -269,21 +314,33 @@ void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
   }
 }
 
-void Proxy::handle_exception(int clientFd, std::string errorCode){
-  std::unordered_map<std::string, std::string> errorMap = {
-    {"400", "HTTP/1.1 400 Bad Request\r\n\r\n"},
-    {"404", "HTTP/1.1 404 Not Found\r\n\r\n"},
-    {"405", "HTTP/1.1 405 Method Not Allowed\r\n\r\n"}
-  };
+void Proxy::handle_exception(ClientInfo* clientInfo, std::string errorCode){
+  std::string httpversion = "HTTP/1.1";
+  std::string lineEnd= "\r\n\r\n";
 
-  std::string errorMessage = errorMap[errorCode];
-  send(clientFd, errorMessage.c_str(), errorMessage.length(), 0);
+  std::unordered_map<std::string, std::string> errorMap = {
+    {"400", "400 Bad Request"},
+    {"404", "404 Not Found"},
+    {"405", "405 Method Not Allowed"}
+  };
+  std::string errorResponse = httpversion + " " + errorMap[errorCode] + lineEnd;
+
+  Proxy::print_to_log(clientInfo->get_sessionId(), errorMap[errorCode], DEBUG);
+  send(clientInfo->get_clientFd(), errorResponse.c_str(), errorResponse.length(), 0);
+}
+
+void Proxy::print_to_log(int sid, std::string message, bool debug){
+  if(debug){ // print to console if in debug mode
+    std::cout << sid << ": " << message << std::endl;
+  }
+  // write to log
 }
 
 void* Proxy::handle_client(void* _clientInfo){
   ClientInfo* clientInfo = (ClientInfo*) _clientInfo;
 
   int clientFd = clientInfo->get_clientFd();
+  int sessionId = clientInfo->get_sessionId();
 
   char requestChars[65536] = {0};
   int requestCharsLen = recv(clientInfo->get_clientFd(), requestChars, 65536, 0);
@@ -295,11 +352,22 @@ void* Proxy::handle_client(void* _clientInfo){
   }
   catch(CustomException& e){ 
     std::string badRequestResponse = "HTTP/1.1 400 Bad Request\r\n\r\n";
-    Proxy::handle_exception(clientFd, "400");
+    Proxy::handle_exception(clientInfo, "400");
 
     close(clientFd);
     delete clientInfo;
     return NULL;
+  }
+
+  try{
+    std::stringstream ss;
+    ss << request.get_header_first_line() 
+      << " from " << clientInfo->get_clientAddr() 
+      << " @ " << CustomTime::get_current_time_in_str();
+    Proxy::print_to_log(sessionId, ss.str(), DEBUG);
+  }
+  catch(CustomException& e){
+    Proxy::print_to_log(sessionId, e.what(), DEBUG);
   }
 
   if(request.get_method() == "GET"){
@@ -307,8 +375,7 @@ void* Proxy::handle_client(void* _clientInfo){
       Proxy::process_get_request(request, clientInfo);
     }
     catch(CustomException& e){ // if error, return 404
-      std::cout << "not found" << std::endl;
-      Proxy::handle_exception(clientFd, "404");
+      Proxy::handle_exception(clientInfo, "404");
     }
   }
   else if(request.get_method() == "POST"){
@@ -316,10 +383,10 @@ void* Proxy::handle_client(void* _clientInfo){
       Proxy::process_post_request(request, clientInfo);
     }
     catch(CustomException& e){
-      Proxy::handle_exception(clientFd, "400");
+      Proxy::handle_exception(clientInfo, "400");
     }
     catch(...){ // handle a rare error: basic_string::_M_create, to be investigated
-      Proxy::handle_exception(clientFd, "404");
+      Proxy::handle_exception(clientInfo, "404");
     }
   }
   else if(request.get_method() == "CONNECT"){
@@ -327,13 +394,11 @@ void* Proxy::handle_client(void* _clientInfo){
       Proxy::process_connect_request(request, clientInfo);
     }
     catch(CustomException& e){ // if error, return 404
-      std::cout << "not found" << std::endl;
-      Proxy::handle_exception(clientFd, "404");
+      Proxy::handle_exception(clientInfo, "404");
     }
   }
   else{ // if method not in [GET, POST, CONNECT], return 405
-    std::cout << "method not allowed" << std::endl;
-    Proxy::handle_exception(clientFd, "405");
+    Proxy::handle_exception(clientInfo, "405");
   }
 
   close(clientFd);

@@ -1,5 +1,8 @@
 #include "customTime.h"
 
+#include <sstream>
+#include <cstring>
+
 std::tm* CustomTime::convert_string_time_to_tm(std::string rawString){
   // example input: Tue, 15 Feb 2022 03:05:27 GMT
 
@@ -20,3 +23,19 @@ std::tm* CustomTime::convert_string_time_to_tm(std::string rawString){
 
   return timestamp;
 } 
+
+std::string CustomTime::convert_time_t_to_string(std::time_t time){
+  std::stringstream ss;
+  ss << std::strtok(std::ctime(&time), "\n");
+  return ss.str();
+}
+
+std::string CustomTime::get_current_time_in_str(){
+  std::time_t timeNow = std::time(0);
+  return convert_time_t_to_string(timeNow);
+}
+
+std::time_t get_current_time_in_time(){
+  std::time_t timeNow = std::time(0);
+  return timeNow;
+}

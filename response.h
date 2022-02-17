@@ -1,6 +1,8 @@
 #ifndef __RESPONSE_H__
 #define __RESPONSE_H__
 
+#include "customTime.h"
+
 #include <iostream>
 #include <vector>
 
@@ -35,13 +37,21 @@ class Response{
     ~Response();
 
     std::string get_rawHeader();
+    std::string get_header_first_line();
     size_t get_headerLen();
     int get_contentLength();
     std::string get_body();
     std::string get_response();
     std::string get_lastModified();
     std::string get_eTag();
+    std::string get_expiration_time();
 
+    /**
+     * @brief for GET / POST response, get the rest of the response after getting the first segment
+     * 
+     * @param remoteFd server file descriptor
+     * @param firstBatch first segment
+     */
     void fetch_rest_body_from_remote(int remoteFd, std::string firstBatch);
 
     /**
@@ -53,8 +63,27 @@ class Response{
      * @return false 
      */
     bool is_chunked();
-    bool is_cacheable();
-    bool need_revalidation();
+
+    /**
+     * @brief check if the returned response is cachable
+     * 
+     * @return int status of cachability
+     *  0: not cacheable
+     *  1: cacheable, but expires
+     *  2: cacheable, but requires re-validation
+     */
+    int is_cacheable();
+
+    /**
+     * @brief check if the cached response require revalidation
+     * 
+     * @return int status of current cache
+     *  0: valid, do not need revalidation
+     *  1: must revalidate
+     *  2: expired
+     * 
+     */
+    int need_revalidation();
 
     void print_response_headers();
 };

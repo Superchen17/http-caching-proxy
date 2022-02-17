@@ -1,6 +1,6 @@
 #include "response.h"
 #include "exception.h"
-#include "customTime.h"
+
 #include <sys/socket.h>
 
 void Response::parse_rawHeader(std::string firstBatch){
@@ -36,6 +36,13 @@ std::string Response::get_rawHeader(){
   return this->rawHeader;
 }
 
+std::string Response::get_header_first_line(){
+  if(!this->lines.empty()){
+    return this->lines[0];
+  }
+  throw CustomException("ERROR: empty request header");
+}
+
 size_t Response::get_headerLen(){
   return this->rawHeader.length();
 }
@@ -54,6 +61,27 @@ std::string Response::get_lastModified(){
 
 std::string Response::get_eTag(){
   return this->eTag;
+}
+
+std::string Response::get_expiration_time(){
+  if(this->expires != ""){ // if expires exist, grab it
+    return this->expires;
+  }
+  else // if expires not exist, try grab date + max_age
+  {
+    std::string maxAgeWord = "max-age=";
+    size_t posMaxAge;
+    if((posMaxAge=this->cacheControl.find(maxAgeWord)) != std::string::npos){
+      std::string maxAgeStr = this->cacheControl.substr(posMaxAge + maxAgeWord.length());
+
+      std::tm* tmDate = CustomTime::convert_string_time_to_tm(this->date);
+      std::time_t timeExpire = mktime(tmDate) + std::stod(maxAgeStr);
+
+      return CustomTime::convert_time_t_to_string(timeExpire);
+    }
+  }
+  // worst case, grab current time
+  return CustomTime::get_current_time_in_str();
 }
 
 void Response::compute_contentLength(){
@@ -191,19 +219,31 @@ bool Response::is_chunked(){
   return false;
 }
 
-bool Response::is_cacheable(){
+int Response::is_cacheable(){
   std::string noCacheWord = "no-cache";
+  std::string maxAgeWord = "max-age=";
+  std::string mustRevalWord = "must-revalidate";
+
   size_t posNoCacheWord = this->cacheControl.find(noCacheWord);
-  if(posNoCacheWord == std::string::npos){
-    return true;
+  size_t posMaxAgeWord = this->cacheControl.find(maxAgeWord);
+  size_t posMustRevalWord = this->cacheControl.find(mustRevalWord);
+
+  if(posNoCacheWord != std::string::npos){
+    return 0;
   }
-  return false;
+  else if(posMaxAgeWord != std::string::npos || this->expires != ""){
+    return 1;
+  }
+  else if(posMustRevalWord != std::string::npos){
+    return 2;
+  }
+  return 2;
 }
 
-bool Response::need_revalidation(){
+int Response::need_revalidation(){
   // if no cache-control header, must revalidate
   if(this->cacheControl == ""){
-    return true;
+    return 1;
   }
 
   std::string maxAgeWord = "max-age=";
@@ -212,7 +252,7 @@ bool Response::need_revalidation(){
 
   // check if cache-control has must-revalidate
   if((posMustRevalWord=this->cacheControl.find(mustRevalWord)) != std::string::npos){
-    return true;
+    return 1;
   }
 
   // check if expire header exist
@@ -223,11 +263,11 @@ bool Response::need_revalidation(){
 
     if(timeNow > timeExpire){ // need revalidate if now > expire time
       delete tmExpireTime;
-      return true;
+      return 2;
     }
     else{
       delete tmExpireTime;
-      return false;
+      return 0;
     }
   }
   // check if cache-control has max-age
@@ -241,14 +281,14 @@ bool Response::need_revalidation(){
     // need revalidate if now > (cached time + max age)
     if(timeNow > timeCached + std::stoi(maxAgeStr)){
       delete tmDate;
-      return true;
+      return 2;
     }
     else{
       delete tmDate;
-      return false;
+      return 0;
     }
   }
-  return true;
+  return 1;
 }
 
 std::string Response::get_response(){

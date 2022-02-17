@@ -4,6 +4,7 @@ ClientInfo::~ClientInfo(){
   this->clientFd = -1;
   this->clientAddr = "";
   this->clientPort = -1;
+  this->sessionId = -1;
 }
 
 int ClientInfo::get_clientFd(){
@@ -16,6 +17,10 @@ std::string ClientInfo::get_clientAddr(){
 
 int ClientInfo::get_clientPort(){
   return this->clientPort;
+}
+
+int ClientInfo::get_sessionId(){
+  return this->sessionId;
 }
 
 void ClientInfo::set_clientFd(int _clientFd){
