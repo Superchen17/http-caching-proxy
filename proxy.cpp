@@ -13,9 +13,9 @@ Proxy::~Proxy(){
 int Proxy::get_new_sessionId(){
   int oldId = this->sessionId;
 
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(&sessionLock);
   this->sessionId++;
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(&sessionLock);
 
   return oldId;
 }
@@ -165,8 +165,8 @@ Response Proxy::get_response_from_remote(Request& request, int remoteFd, ClientI
 
   send(remoteFd, request.get_raw_request().c_str(), request.get_raw_request().length(), 0);
 
-  char respChars[65536] = {0};
-  int respCharsLen = recv(remoteFd, respChars, 65536, 0);
+  char respChars[MAX_BUFFER_SIZE] = {0};
+  int respCharsLen = recv(remoteFd, respChars, MAX_BUFFER_SIZE, 0);
   std::string respStr(respChars, respCharsLen);
   Response resp(respStr);
   if(resp.get_contentLength() != -1){
@@ -182,8 +182,8 @@ Response Proxy::get_response_from_remote(Request& request, int remoteFd, ClientI
 
 void Proxy::relay_chunks_remote_to_client(int remoteFd, int clientFd){
   while(true){
-    char respChars[65536] = {0};
-    int size = recv(remoteFd, respChars, 65536, 0);
+    char respChars[MAX_BUFFER_SIZE] = {0};
+    int size = recv(remoteFd, respChars, MAX_BUFFER_SIZE, 0);
     if(size <= 0){
       break;
     }
@@ -211,13 +211,11 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
       Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd, clientInfo);
       std::string notModified = "HTTP/1.1 304 Not Modified";
       if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
-        std::cout << "modified" << std::endl;
         resp = validateResp; // send fresh response to client
+        pthread_mutex_lock(&cacheLock);
         cache.evict_from_store(request); // evict stale cache
         cache.add_entry_to_store(request, resp);// add fresh response to cache
-      }
-      else{
-        Proxy::print_to_log(sessionId, "in cache, valid", DEBUG);
+        pthread_mutex_unlock(&cacheLock);
       }
     }
     else{
@@ -240,11 +238,18 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
     }
     else if(isCacheable == 1){
       Proxy::print_to_log(sessionId, "cached, expires at " + resp.get_expiration_time(), DEBUG);
+      pthread_mutex_lock(&cacheLock);
       cache.add_entry_to_store(request, resp);
+      pthread_mutex_unlock(&cacheLock);
+    }
+    else if(isCacheable == 2){
+      Proxy::print_to_log(sessionId, "cached, but requires re-validation", DEBUG);
+      pthread_mutex_lock(&cacheLock);
+      cache.add_entry_to_store(request, resp);
+      pthread_mutex_unlock(&cacheLock);
     }
     else{
-      Proxy::print_to_log(sessionId, "cached, but requires re-validation", DEBUG);
-      cache.add_entry_to_store(request, resp);
+      Proxy::print_to_log(sessionId, "not cacheable because response not 200", DEBUG);
     }
   }
   
@@ -297,9 +302,9 @@ void Proxy::process_connect_request(Request& request, ClientInfo* clientInfo){
 
     for(int i = 0; i < fds.size(); i++){
       if(FD_ISSET(fds[i], &fdSet)){
-        char respChars[65536] = {0};
+        char respChars[MAX_BUFFER_SIZE] = {0};
         int respCharsLen;
-        if((respCharsLen = recv(fds[i], respChars, 65536, 0)) > 0){
+        if((respCharsLen = recv(fds[i], respChars, MAX_BUFFER_SIZE, 0)) > 0){
           if((respCharsLen = send(fds[(i + 1) % fds.size()], respChars, respCharsLen, 0)) <= 0){
             Proxy::print_to_log(clientInfo->get_sessionId(), "Tunnel closed", DEBUG);
             return;
@@ -330,10 +335,22 @@ void Proxy::handle_exception(ClientInfo* clientInfo, std::string errorCode){
 }
 
 void Proxy::print_to_log(int sid, std::string message, bool debug){
+  std::stringstream ss;
+  ss << sid << ": " << message << std::endl;
+
   if(debug){ // print to console if in debug mode
-    std::cout << sid << ": " << message << std::endl;
+    std::cout << ss.str();
   }
-  // write to log
+  else{// write to log if not in debug mode
+    pthread_mutex_lock(&logLock);
+    proxyLog.open(LOG_PATH, std::ios_base::app);
+    if(!proxyLog){
+      throw CustomException("Error: cannot open log file");
+    }
+    proxyLog << ss.str();
+    proxyLog.close();
+    pthread_mutex_unlock(&logLock);
+  }  
 }
 
 void* Proxy::handle_client(void* _clientInfo){
@@ -342,12 +359,12 @@ void* Proxy::handle_client(void* _clientInfo){
   int clientFd = clientInfo->get_clientFd();
   int sessionId = clientInfo->get_sessionId();
 
-  char requestChars[65536] = {0};
-  int requestCharsLen = recv(clientInfo->get_clientFd(), requestChars, 65536, 0);
+  char requestChars[MAX_BUFFER_SIZE] = {0};
+  int requestCharsLen = recv(clientInfo->get_clientFd(), requestChars, MAX_BUFFER_SIZE, 0);
   Request request;
 
   try{ // if request is malformed, return 400
-    std::string requestStr(requestChars);
+    std::string requestStr(requestChars, requestCharsLen);
     request = Request(requestStr);
   }
   catch(CustomException& e){ 
@@ -409,14 +426,12 @@ void* Proxy::handle_client(void* _clientInfo){
 void Proxy::run(){
   while(1){
     ClientInfo* clientInfo = this->accept_connection();
-
     pthread_t thread;
     pthread_create(&thread, NULL, handle_client, clientInfo);  
-
   }
 }
 
 int main(){
-  Proxy p("127.0.0.1", "12345");
+  Proxy p("0.0.0.0", "12345");
   p.run();
 }

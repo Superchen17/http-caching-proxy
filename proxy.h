@@ -6,9 +6,11 @@
 #include "cache.h"
 
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <utility>
 
 #include <iostream>
+#include <fstream>
 #include <cstring>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -18,15 +20,16 @@
 #include <pthread.h>
 #include <ctime>
 
-/**
- * @brief set to 1 to print log to console, else set to 0
- * 
- */
 #define DEBUG 1
+#define MAX_BUFFER_SIZE 65536
+#define LOG_PATH "/var/log/erss/proxy.log"
 
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t sessionLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t logLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t cacheLock = PTHREAD_MUTEX_INITIALIZER;
 
 Cache cache;
+std::fstream proxyLog;
 
 typedef struct addrinfo addrinfo_t;
 typedef struct sockaddr sockaddr_t;
@@ -60,12 +63,42 @@ class Proxy{
     ClientInfo* accept_connection();
     void create_socket_and_listen(const char* hostname, const char* port);
     static int create_socket_and_connect(const char* hostname, const char* port);
-    void run();
 
+    /**
+     * @brief handle a client connection
+     * 
+     * @param _clientInfo client connection info
+     * @return void* 
+     */
     static void* handle_client(void* _clientInfo);
+
+    /**
+     * @brief handle exception by sending back to client 4xx error messages
+     * 
+     * @param clientInfo client connection info
+     * @param errorCode 4xx client side error code
+     */
     static void handle_exception(ClientInfo* clientInfo, std::string errorCode);
 
+    /**
+     * @brief Get the revalidation result from server
+     * 
+     * @param request client request
+     * @param cachedResp cached response
+     * @param remoteFd server file descriptor
+     * @param clientInfo client connection info
+     * @return Response 
+     */
     static Response get_revalidation_result_from_remote(Request& request, Response& cachedResp, int remoteFd, ClientInfo* clientInfo);
+    
+    /**
+     * @brief Get the first segment of response (full header and partial body) from server
+     * 
+     * @param request client request
+     * @param remoteFd server file descriptor
+     * @param clientInfo client connection info
+     * @return Response 
+     */
     static Response get_response_from_remote(Request& request, int remoteFd, ClientInfo* clientInfo);
 
     /**
@@ -107,6 +140,14 @@ class Proxy{
      * @param debug if true, print to console
      */
     static void print_to_log(int sId, std::string message, bool debug);
+
+    /**
+     * @brief run client request handler forever
+     * @note spawn a thread upon each client request
+     * @warning number of thread uncontrolled
+     * 
+     */
+    void run();
 };
 
 #endif

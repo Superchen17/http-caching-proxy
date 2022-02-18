@@ -19,6 +19,7 @@ class Request{
   public:
     Request(){}
     Request(std::string requestStr);
+    bool operator==(const Request& rhs) const;
     ~Request();
 
     std::string get_raw_request() const;
@@ -27,8 +28,6 @@ class Request{
     std::string get_host() const;
     std::string get_port() const;
     std::vector<std::string> get_acceptedEncoding() const;
-
-    bool operator==(const Request& rhs) const;
 
     void from_str_to_vec(std::string requestStr);
     void find_method();

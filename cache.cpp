@@ -9,17 +9,27 @@ size_t Cache::RequestKeyHash::operator()(const Request& r) const{
   return std::hash<std::string>()(hashStr);
 }
 
+void Cache::replace_using_fifo(){
+  Request request = this->fifoQueue.front();
+  fifoQueue.pop();
+  this->evict_from_store(request);
+}
+
 void Cache::add_entry_to_store(const Request& request, const Response& response){
   if(this->store.find(request) == this->store.end()){
     if(this->store.size() == this->maxCacheSize){ // remove first entry if cache full
-      this->evict_from_store(this->store.begin()->first);
+      this->replace_using_fifo();
     }
     this->store.insert({request, response});
+    this->fifoQueue.push(request);
   }
 }
 
 void Cache::evict_from_store(const Request& request){
-  this->store.erase(request);
+  if(this->store.find(request) != this->store.end())
+  {
+    this->store.erase(request);
+  }
 }
 
 bool Cache::exist_in_store(const Request& request) const{

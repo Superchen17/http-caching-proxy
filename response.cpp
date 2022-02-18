@@ -220,21 +220,30 @@ bool Response::is_chunked(){
 }
 
 int Response::is_cacheable(){
+  if(this->lines.empty()){
+    throw CustomException("Error: melformed response");
+  }
+  if(this->lines[0] != "HTTP/1.1 200 OK"){
+    return -1;
+  }
+  
   std::string noCacheWord = "no-cache";
+  std::string noStoreWord = "no-store";
   std::string maxAgeWord = "max-age=";
   std::string mustRevalWord = "must-revalidate";
 
   size_t posNoCacheWord = this->cacheControl.find(noCacheWord);
+  size_t posNoStoreWord = this->cacheControl.find(noStoreWord);
   size_t posMaxAgeWord = this->cacheControl.find(maxAgeWord);
   size_t posMustRevalWord = this->cacheControl.find(mustRevalWord);
 
-  if(posNoCacheWord != std::string::npos){
+  if(posNoStoreWord != std::string::npos){
     return 0;
   }
   else if(posMaxAgeWord != std::string::npos || this->expires != ""){
     return 1;
   }
-  else if(posMustRevalWord != std::string::npos){
+  else if(posMustRevalWord != std::string::npos || posNoCacheWord != std::string::npos){
     return 2;
   }
   return 2;

@@ -68,6 +68,7 @@ class Response{
      * @brief check if the returned response is cachable
      * 
      * @return int status of cachability
+     *  -1: error response (not 200)
      *  0: not cacheable
      *  1: cacheable, but expires
      *  2: cacheable, but requires re-validation
@@ -85,6 +86,10 @@ class Response{
      */
     int need_revalidation();
 
+    /**
+     * @brief display the response headers
+     * 
+     */
     void print_response_headers();
 };
 
