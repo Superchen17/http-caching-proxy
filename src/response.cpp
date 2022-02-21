@@ -229,15 +229,20 @@ int Response::is_cacheable(){
   
   std::string noCacheWord = "no-cache";
   std::string noStoreWord = "no-store";
+  std::string privateWord = "private";
   std::string maxAgeWord = "max-age=";
   std::string mustRevalWord = "must-revalidate";
 
   size_t posNoCacheWord = this->cacheControl.find(noCacheWord);
   size_t posNoStoreWord = this->cacheControl.find(noStoreWord);
+  size_t posPrivateWord = this->cacheControl.find(privateWord);
   size_t posMaxAgeWord = this->cacheControl.find(maxAgeWord);
   size_t posMustRevalWord = this->cacheControl.find(mustRevalWord);
 
-  if(posNoStoreWord != std::string::npos){
+  if(posPrivateWord != std::string::npos){
+    return -2;
+  }
+  else if(posNoStoreWord != std::string::npos){
     return 0;
   }
   else if(posMaxAgeWord != std::string::npos || this->expires != ""){

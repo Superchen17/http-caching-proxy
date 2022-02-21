@@ -68,6 +68,7 @@ class Response{
      * @brief check if the returned response is cachable
      * 
      * @return int status of cachability
+     *  -2: private response 
      *  -1: error response (not 200)
      *  0: not cacheable
      *  1: cacheable, but expires

@@ -110,6 +110,26 @@ class Proxy{
     static void relay_chunks_remote_to_client(int remoteFd, int clientFd);
 
     /**
+     * @brief try respond to client using cached responses
+     * 
+     * @param request client request
+     * @param resp cached response
+     * @param sessionId session ID
+     * @param remoteFd server file descriptor
+     * @param clientInfo client connection info
+     */
+    static void try_respond_with_cache(Request& request, Response& resp, int sessionId, int remoteFd, ClientInfo* clientInfo);
+
+    /**
+     * @brief try cache response sent from remote
+     * 
+     * @param request client request
+     * @param resp response from remote 
+     * @param sessionId session ID
+     */
+    static void try_cache_response_from_remote(Request& request, Response& resp, int sessionId);
+
+    /**
      * @brief handler for http GET request
      * 
      * @param request client request

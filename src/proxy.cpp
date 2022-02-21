@@ -191,6 +191,60 @@ void Proxy::relay_chunks_remote_to_client(int remoteFd, int clientFd){
   }
 }
 
+void Proxy::try_respond_with_cache(Request& request, Response& resp, int sessionId, int remoteFd, ClientInfo* clientInfo){
+  int needRevalidate = resp.need_revalidation();
+  if(needRevalidate > 0){ // check if need to revalidate
+    if(needRevalidate == 1){
+      Proxy::print_to_log(sessionId, "in cache, requires validation", DEBUG);
+    }
+    else if(needRevalidate == 2){
+      Proxy::print_to_log(sessionId, "in cache, but expired at" + resp.get_expiration_time(), DEBUG);
+    }
+    Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd, clientInfo);
+    std::string notModified = "HTTP/1.1 304 Not Modified";
+    if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
+      resp = validateResp; // send fresh response to client
+      pthread_mutex_lock(&cacheLock);
+      cache.evict_from_store(request); // evict stale cache
+      cache.add_entry_to_store(request, resp);// add fresh response to cache
+      pthread_mutex_unlock(&cacheLock);
+    }
+  }
+  else{
+    Proxy::print_to_log(sessionId, "in cache, valid", DEBUG);
+  }
+}
+
+void Proxy::try_cache_response_from_remote(Request& request, Response& resp, int sessionId){
+  int isCacheable = resp.is_cacheable();
+  switch(isCacheable){
+    case -2:
+      Proxy::print_to_log(sessionId, "not cacheable because cache-control=private", DEBUG);
+      break;
+    case -1:
+      Proxy::print_to_log(sessionId, "not cacheable because response not 200", DEBUG);
+      break;
+    case 0:
+      Proxy::print_to_log(sessionId, "not cacheable because cache-control=no-cache", DEBUG);
+      break;
+    case 1:
+      Proxy::print_to_log(sessionId, "cached, expires at " + resp.get_expiration_time(), DEBUG);
+      pthread_mutex_lock(&cacheLock);
+      cache.add_entry_to_store(request, resp);
+      pthread_mutex_unlock(&cacheLock);
+      break;
+    case 2:
+      Proxy::print_to_log(sessionId, "cached, but requires re-validation", DEBUG);
+      pthread_mutex_lock(&cacheLock);
+      cache.add_entry_to_store(request, resp);
+      pthread_mutex_unlock(&cacheLock);
+      break;
+    default:
+      Proxy::print_to_log(sessionId, "not cacheable because other issues", DEBUG);
+      break;
+  }
+}
+
 void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   int remoteFd = create_socket_and_connect(
     request.get_host().c_str(), request.get_port().c_str()
@@ -200,27 +254,7 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   Response resp;
   if(cache.exist_in_store(request)){ // if in cache
     resp = cache.get_cached_response(request);
-    int needRevalidate = resp.need_revalidation();
-    if(needRevalidate > 0){ // check if need to revalidate
-      if(needRevalidate == 1){
-        Proxy::print_to_log(sessionId, "in cache, requires validation", DEBUG);
-      }
-      else if(needRevalidate == 2){
-        Proxy::print_to_log(sessionId, "in cache, but expired at" + resp.get_expiration_time(), DEBUG);
-      }
-      Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd, clientInfo);
-      std::string notModified = "HTTP/1.1 304 Not Modified";
-      if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
-        resp = validateResp; // send fresh response to client
-        pthread_mutex_lock(&cacheLock);
-        cache.evict_from_store(request); // evict stale cache
-        cache.add_entry_to_store(request, resp);// add fresh response to cache
-        pthread_mutex_unlock(&cacheLock);
-      }
-    }
-    else{
-      Proxy::print_to_log(sessionId, "in cache, valid", DEBUG);
-    }
+    Proxy::try_respond_with_cache(request, resp, sessionId, remoteFd, clientInfo);
   }
   else{ // if not in cache
     Proxy::print_to_log(sessionId, "not in cache", DEBUG);
@@ -232,25 +266,8 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
       Proxy::print_to_log(sessionId, "Tunnel closed", DEBUG);
       return;
     }
-    int isCacheable = resp.is_cacheable();
-    if( isCacheable == 0){
-      Proxy::print_to_log(sessionId, "not cacheable because cache-control=no-cache", DEBUG);
-    }
-    else if(isCacheable == 1){
-      Proxy::print_to_log(sessionId, "cached, expires at " + resp.get_expiration_time(), DEBUG);
-      pthread_mutex_lock(&cacheLock);
-      cache.add_entry_to_store(request, resp);
-      pthread_mutex_unlock(&cacheLock);
-    }
-    else if(isCacheable == 2){
-      Proxy::print_to_log(sessionId, "cached, but requires re-validation", DEBUG);
-      pthread_mutex_lock(&cacheLock);
-      cache.add_entry_to_store(request, resp);
-      pthread_mutex_unlock(&cacheLock);
-    }
-    else{
-      Proxy::print_to_log(sessionId, "not cacheable because response not 200", DEBUG);
-    }
+    // if not chunked, try cache response and relay back to client
+    Proxy::try_cache_response_from_remote(request, resp, sessionId);
   }
   
   Proxy::print_to_log(sessionId, "Responding " + resp.get_header_first_line(), DEBUG);
