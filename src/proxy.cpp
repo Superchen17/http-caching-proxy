@@ -449,6 +449,6 @@ void Proxy::run(){
 }
 
 int main(){
-  Proxy p("0.0.0.0", "12345");
+  Proxy p(NULL, "12345");
   p.run();
 }

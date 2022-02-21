@@ -48,7 +48,7 @@ class Proxy{
   public:
     Proxy(const char* hostname, const char* port):socketFd(-1), sessionId(1000){
       this->create_socket_and_listen(hostname, port);
-      std::cout << "proxy running on host " << hostname << ", port " << port << std::endl;
+      std::cout << "proxy running on port " << port << std::endl;
     }
     ~Proxy();
 
