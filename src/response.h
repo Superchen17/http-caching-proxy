@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <vector>
+#include <unordered_map>
 
 class Response{
   private:
@@ -12,7 +13,7 @@ class Response{
     std::string rawHeader;
     std::string date;
     int contentLength;
-    std::string cacheControl;
+    std::unordered_map<std::string, std::string> cacheControl;
     std::string lastModified;
     std::string eTag;
     std::string expires;
@@ -22,6 +23,7 @@ class Response{
     void parse_rawHeader(std::string firstBatch);
     void compute_contentLength();
     void parse_date();
+    void parse_cacheControl_entry(std::string currControl);
     void parse_cacheControl();
     void parse_lastModified();
     void parse_eTag();

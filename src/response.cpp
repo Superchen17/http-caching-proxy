@@ -69,13 +69,13 @@ std::string Response::get_expiration_time(){
   }
   else // if expires not exist, try grab date + max_age
   {
-    std::string maxAgeWord = "max-age=";
-    size_t posMaxAge;
-    if((posMaxAge=this->cacheControl.find(maxAgeWord)) != std::string::npos){
-      std::string maxAgeStr = this->cacheControl.substr(posMaxAge + maxAgeWord.length());
+    std::string maxAgeWord = "max-age";
 
-      std::tm* tmDate = CustomTime::convert_string_time_to_tm(this->date);
-      std::time_t timeExpire = mktime(tmDate) + std::stod(maxAgeStr);
+    size_t posMaxAge;
+    if(this->cacheControl.find(maxAgeWord) != this->cacheControl.end()){
+      std::string maxAgeStr = this->cacheControl[maxAgeWord];
+      std::time_t date = CustomTime::convert_string_time_to_tm(this->date);
+      std::time_t timeExpire = date + std::stod(maxAgeStr);
 
       return CustomTime::convert_time_t_to_string(timeExpire);
     }
@@ -115,12 +115,44 @@ void Response::parse_date(){
   }
 }
 
+void Response::parse_cacheControl_entry(std::string currControl){
+  std::string equal = "=";
+  size_t posEqual = currControl.find(equal);
+
+  if(posEqual != std::string::npos){
+    std::string controlKey = currControl.substr(0, posEqual);
+    std::string controlValue = currControl.substr(posEqual + equal.length());
+    this->cacheControl.insert({controlKey, controlValue});
+  }
+  else{
+    this->cacheControl.insert({currControl, ""});
+  }
+}
+
 void Response::parse_cacheControl(){
   try{
-    this->cacheControl = this->parse_string_field("Cache-Control: ", "\r\n");
+    std::string allControls = this->parse_string_field("Cache-Control: ", "\r\n");
+    std::string comma = ", ";
+    size_t posComma;
+    std::string currControl = "";
+
+    while(true){
+      posComma = allControls.find(comma);
+      if(posComma != std::string::npos){
+        currControl = allControls.substr(0, posComma);
+        allControls = allControls.substr(posComma + comma.length());
+
+        this->parse_cacheControl_entry(currControl);
+      }
+      else{
+        currControl = allControls;
+        this->parse_cacheControl_entry(currControl);
+        break;
+      }
+    }
   }
   catch(CustomException& e){
-    this->cacheControl = "";
+    this->cacheControl.clear();
   }
 }
 
@@ -230,25 +262,22 @@ int Response::is_cacheable(){
   std::string noCacheWord = "no-cache";
   std::string noStoreWord = "no-store";
   std::string privateWord = "private";
-  std::string maxAgeWord = "max-age=";
+  std::string maxAgeWord = "max-age";
   std::string mustRevalWord = "must-revalidate";
 
-  size_t posNoCacheWord = this->cacheControl.find(noCacheWord);
-  size_t posNoStoreWord = this->cacheControl.find(noStoreWord);
-  size_t posPrivateWord = this->cacheControl.find(privateWord);
-  size_t posMaxAgeWord = this->cacheControl.find(maxAgeWord);
-  size_t posMustRevalWord = this->cacheControl.find(mustRevalWord);
-
-  if(posPrivateWord != std::string::npos){
+  if(this->cacheControl.find(privateWord) != this->cacheControl.end()){
     return -2;
   }
-  else if(posNoStoreWord != std::string::npos){
+  else if(this->cacheControl.find(noStoreWord) != this->cacheControl.end()){
     return 0;
   }
-  else if(posMaxAgeWord != std::string::npos || this->expires != ""){
+  else if(this->cacheControl.find(maxAgeWord) != this->cacheControl.end() || this->expires != ""){
     return 1;
   }
-  else if(posMustRevalWord != std::string::npos || posNoCacheWord != std::string::npos){
+  else if(this->cacheControl.find(mustRevalWord) != this->cacheControl.end()){
+    return 2;
+  }
+  else if(this->cacheControl.find(noCacheWord) != this->cacheControl.end()){
     return 2;
   }
   return 2;
@@ -256,49 +285,47 @@ int Response::is_cacheable(){
 
 int Response::need_revalidation(){
   // if no cache-control header, must revalidate
-  if(this->cacheControl == ""){
+  if(this->cacheControl.empty()){
     return 1;
   }
 
-  std::string maxAgeWord = "max-age=";
+  std::string maxAgeWord = "max-age";
   std::string mustRevalWord = "must-revalidate";
-  size_t posMaxAge, posMustRevalWord;
+  std::string noCacheWord = "no-cache";
 
-  // check if cache-control has must-revalidate
-  if((posMustRevalWord=this->cacheControl.find(mustRevalWord)) != std::string::npos){
+  // if cache-control has must-revalidate, must revalidate
+  if(this->cacheControl.find(mustRevalWord) != this->cacheControl.end()){
     return 1;
+  }
+  // if cache-control has no-cache, must revalidate
+  if(this->cacheControl.find(noCacheWord) != this->cacheControl.end()){
+    return 0;
   }
 
   // check if expire header exist
   if(this->expires != ""){
-    std::tm* tmExpireTime = CustomTime::convert_string_time_to_tm(this->expires);
     std::time_t timeNow = std::time(0);
-    std::time_t timeExpire = mktime(tmExpireTime);
+    std::time_t timeExpire = CustomTime::convert_string_time_to_tm(this->expires);
 
     if(timeNow > timeExpire){ // need revalidate if now > expire time
-      delete tmExpireTime;
       return 2;
     }
     else{
-      delete tmExpireTime;
       return 0;
     }
   }
   // check if cache-control has max-age
-  else if((posMaxAge=this->cacheControl.find(maxAgeWord)) != std::string::npos){
-    std::string maxAgeStr = this->cacheControl.substr(posMaxAge + maxAgeWord.length());
+  else if(this->cacheControl.find(maxAgeWord) != this->cacheControl.end()){
+    std::string maxAgeStr = this->cacheControl[maxAgeWord];
 
-    std::tm* tmDate = CustomTime::convert_string_time_to_tm(this->date);
     std::time_t timeNow = std::time(0);
-    std::time_t timeCached = mktime(tmDate);
+    std::time_t timeCached = CustomTime::convert_string_time_to_tm(this->date);
 
     // need revalidate if now > (cached time + max age)
     if(timeNow > timeCached + std::stoi(maxAgeStr)){
-      delete tmDate;
       return 2;
     }
     else{
-      delete tmDate;
       return 0;
     }
   }
@@ -311,7 +338,11 @@ std::string Response::get_response(){
 
 void Response::print_response_headers(){
   std::cout << "date: " << this->date <<  std::endl;
-  std::cout << "cache-control: " << this->cacheControl <<  std::endl;
+  std::cout << "cache-control: ";
+  for(auto it = this->cacheControl.begin(); it != this->cacheControl.end(); it++){
+    std::cout << it->first << "=" << it->second << ", ";
+  }
+  std::cout << std::endl;
   std::cout << "last-modified: " << this->lastModified <<  std::endl;
   std::cout << "etag: " << this->eTag <<  std::endl;
   std::cout << "expires: " << this->expires <<  std::endl;

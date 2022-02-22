@@ -9,12 +9,13 @@ class CustomTime{
   public:
 
     /**
-     * @brief convert time from string to std::tm
+     * @brief convert time from string to local std::time_t
+     * @note input time string must be in GMT
      * 
-     * @param rawString raw time string
-     * @return std::tm* converted std::tm pointer
+     * @param rawString raw time string in GMT
+     * @return std::time_t converted local time object
      */
-    static std::tm* convert_string_time_to_tm(std::string rawString);
+    static std::time_t convert_string_time_to_tm(std::string rawString);
 
     /**
      * @brief convert time from time_t to string

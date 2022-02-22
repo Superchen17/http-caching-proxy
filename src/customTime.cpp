@@ -3,7 +3,7 @@
 #include <sstream>
 #include <cstring>
 
-std::tm* CustomTime::convert_string_time_to_tm(std::string rawString){
+std::time_t CustomTime::convert_string_time_to_tm(std::string rawString){
   // example input: Tue, 15 Feb 2022 03:05:27 GMT
 
   std::unordered_map<std::string, int> monthMap = {
@@ -12,16 +12,16 @@ std::tm* CustomTime::convert_string_time_to_tm(std::string rawString){
     {"Sep", 9}, {"Oct", 10}, {"Nov", 11}, {"Dec", 12}
   };
 
-  std::tm* timestamp = new std::tm(); 
-  timestamp->tm_year = std::stoi(rawString.substr(12)) - 1900;
-  timestamp->tm_mon = monthMap[rawString.substr(8, 3)] - 1;
-  timestamp->tm_mday = std::stoi(rawString.substr(5));
-  timestamp->tm_hour = std::stoi(rawString.substr(17));
-  timestamp->tm_min = std::stoi(rawString.substr(20));
-  timestamp->tm_sec = std::stoi(rawString.substr(23));
-  timestamp->tm_isdst = -1;
+  std::tm timestamp{};
+  timestamp.tm_year = std::stoi(rawString.substr(12)) - 1900;
+  timestamp.tm_mon = monthMap[rawString.substr(8, 3)] - 1;
+  timestamp.tm_mday = std::stoi(rawString.substr(5));
+  timestamp.tm_hour = std::stoi(rawString.substr(17));
+  timestamp.tm_min = std::stoi(rawString.substr(20));
+  timestamp.tm_sec = std::stoi(rawString.substr(23));
+  timestamp.tm_isdst = -1;
 
-  return timestamp;
+  return std::mktime(&timestamp) - timezone;
 } 
 
 std::string CustomTime::convert_time_t_to_string(std::time_t time){

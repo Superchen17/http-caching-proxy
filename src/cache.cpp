@@ -1,7 +1,7 @@
 #include "cache.h"
 
 size_t Cache::RequestKeyHash::operator()(const Request& r) const{
-  std::string hashStr = r.get_method() + r.get_host() + r.get_port();
+  std::string hashStr = r.get_header_first_line() + r.get_method() + r.get_host() + r.get_port();
   std::vector<std::string> acceptedEncoding = r.get_acceptedEncoding();
   for(int i = 0; i < acceptedEncoding.size(); i++){
     hashStr += acceptedEncoding[i];

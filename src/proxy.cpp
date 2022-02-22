@@ -198,11 +198,14 @@ void Proxy::try_respond_with_cache(Request& request, Response& resp, int session
       Proxy::print_to_log(sessionId, "in cache, requires validation", DEBUG);
     }
     else if(needRevalidate == 2){
-      Proxy::print_to_log(sessionId, "in cache, but expired at" + resp.get_expiration_time(), DEBUG);
+      Proxy::print_to_log(sessionId, "in cache, but expired at " + resp.get_expiration_time(), DEBUG);
     }
     Response validateResp = Proxy::get_revalidation_result_from_remote(request, resp, remoteFd, clientInfo);
-    std::string notModified = "HTTP/1.1 304 Not Modified";
-    if(validateResp.get_rawHeader().find(notModified) == std::string::npos){ // check if modified
+    std::string notModifiedLower = "HTTP/1.1 304 Not Modified";
+    std::string notModifiedUpper = "HTTP/1.1 304 NOT MODIFIED";
+
+    if(validateResp.get_rawHeader().find(notModifiedLower) == std::string::npos && 
+      validateResp.get_rawHeader().find(notModifiedUpper) == std::string::npos){ // check if modified
       resp = validateResp; // send fresh response to client
       pthread_mutex_lock(&cacheLock);
       cache.evict_from_store(request); // evict stale cache
