@@ -20,7 +20,7 @@
 #include <pthread.h>
 #include <ctime>
 
-#define DEBUG 1
+#define DEBUG 0
 #define MAX_BUFFER_SIZE 65536
 #define LOG_PATH "/var/log/erss/proxy.log"
 
