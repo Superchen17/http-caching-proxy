@@ -243,12 +243,16 @@ void Response::fetch_rest_body_from_remote(int remoteFd, std::string firstBatch)
 }
 
 bool Response::is_chunked(){
-  std::string chunkWord = "chunked";
-  size_t pos;
-  if((pos = this->rawHeader.find(chunkWord)) != std::string::npos){
-    return true;
+  try{
+    std::string transferEncoding = this->parse_string_field("Transfer-Encoding: ", "\r\n\r\n");
+    if(transferEncoding == "chunked"){
+      return true;
+    }
+    return false;
   }
-  return false;
+  catch(...){
+    return false;
+  }
 }
 
 int Response::is_cacheable(){

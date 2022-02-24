@@ -262,6 +262,12 @@ void Proxy::process_get_request(Request& request, ClientInfo* clientInfo){
   else{ // if not in cache
     Proxy::print_to_log(sessionId, "not in cache", DEBUG);
     resp = Proxy::get_response_from_remote(request, remoteFd, clientInfo);
+
+    // if response has no content-length and is not chunked, then it is malformed
+    if(resp.get_contentLength() == -1 && !resp.is_chunked()){
+      throw BadResponseException();
+    }
+
     if(resp.is_chunked() == true){ // if chunked, stream back to client, 
                                    // do not wait for entire response, do not cache
       Proxy::print_to_log(sessionId, "not cacheable because chunked", DEBUG);
@@ -346,7 +352,8 @@ void Proxy::handle_exception(ClientInfo* clientInfo, std::string errorCode){
   std::unordered_map<std::string, std::string> errorMap = {
     {"400", "400 Bad Request"},
     {"404", "404 Not Found"},
-    {"405", "405 Method Not Allowed"}
+    {"405", "405 Method Not Allowed"},
+    {"502", "502 Bad Gateway"}
   };
   std::string errorResponse = httpversion + " " + errorMap[errorCode] + lineEnd;
 
@@ -414,6 +421,9 @@ void* Proxy::handle_client(void* _clientInfo){
     catch(CustomException& e){ // if error, return 404
       Proxy::handle_exception(clientInfo, "404");
     }
+    catch(BadResponseException& e){
+      Proxy::handle_exception(clientInfo, "502");
+    }
   }
   else if(request.get_method() == "POST"){
     try{
@@ -421,6 +431,9 @@ void* Proxy::handle_client(void* _clientInfo){
     }
     catch(CustomException& e){
       Proxy::handle_exception(clientInfo, "400");
+    }
+    catch(BadResponseException& e){
+      Proxy::handle_exception(clientInfo, "502");
     }
     catch(...){ // handle a rare error: basic_string::_M_create, to be investigated
       Proxy::handle_exception(clientInfo, "404");

@@ -27,6 +27,7 @@
 1. The response headers are parsed from the first TCP packet from the remote. If the header is longer than 65535 bytes, there may be the problem of not acquiring the header properly.
 2. If the response has no header `Content-Length`, it is impossible for the proxy to determine when to stop listening from remote. 
 3. For http client side error, only status code `400`, `404` and `405` are handled, any other error code will be caught and replied with a status code of `400`. 
+4. A response is regarded as malformed if has neither the `Content-Length` header nor the `Transfer-Encoding: chunked` header. A status code `502` is returned to the client upon a malformed response.
 
 ## Cache Store
 1. The cache only cares about the total number of entries, not the total size. This may cause memory problem when each response is exceeding large.
